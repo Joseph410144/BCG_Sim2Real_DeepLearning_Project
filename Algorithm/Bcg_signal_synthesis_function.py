@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from scipy import signal
+from scipy.interpolate import interp1d
 # from Filters import BandPassFilter, _draw_signal_fft_spectrum
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -11,6 +12,145 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 class BedBCGGenerator:
     def __init__(self, fs=100):
         self.fs = fs
+
+    def generate_intrinsic_hrv_noise(self, duration, fs, hrv_scale=0.5):
+        """
+        產生具有 1/f 特性 (Pink Noise) 的心率擾動
+        hrv_scale: 變異強度 (例如 0.05 代表 5% 的變異)
+        """
+        n_samples = int(duration * fs)
+        
+        # 1. 產生白雜訊
+        white_noise = np.random.randn(n_samples)
+        
+        # 2. 轉換到頻域
+        X_white = np.fft.rfft(white_noise)
+        frequencies = np.fft.rfftfreq(n_samples, d=1/fs)
+        
+        # 3. 施加 1/f 濾波器 (Pink Noise)
+        # 避免除以 0，第一點設為 0
+        scale = 1.0 / (frequencies + 1e-10) 
+        scale[0] = 0 
+        
+        # 4. 產生粉紅雜訊頻譜
+        X_pink = X_white * np.sqrt(scale)
+        
+        # 5. 轉回時域並正規化
+        pink_noise = np.fft.irfft(X_pink, n=n_samples)
+        
+        # 正規化到 -1 ~ 1 之間
+        pink_noise = pink_noise / np.max(np.abs(pink_noise))
+        
+        return pink_noise * hrv_scale
+
+    def get_total_phase(self, duration, fs, mean_bpm=60, rsa_signal=None, hrv_scale=0.1):
+            """
+            整合：平均心率 + 呼吸調節 (RSA) + 非呼吸隨機 HRV
+            """
+            t = np.linspace(0, duration, int(duration*fs))
+            mean_freq = mean_bpm / 60.0
+            
+            # 1. 基礎心率
+            hr_freq = np.ones_like(t) * mean_freq
+            
+            # 2. 加入非呼吸性 HRV (Intrinsic Random Walk)
+            # 這是你想要的「真正的隨機變異」
+            intrinsic_noise = self.generate_intrinsic_hrv_noise(duration, fs, hrv_scale)
+            hr_freq += (mean_freq * intrinsic_noise)
+            
+            # 3. 加入 RSA (呼吸調節) - 如果你原本就有呼吸訊號
+            if rsa_signal is not None:
+                # 假設 rsa_signal 已經正規化，這裡只是示範強度
+                # 呼吸通常會讓心率頻率改變約 0.05 ~ 0.15 Hz
+                rsa_modulation = rsa_signal * 0.1 # 調變強度
+                hr_freq += rsa_modulation
+                
+            # 4. 積分得到相位
+            theta = 2 * np.pi * np.cumsum(hr_freq) / fs
+            
+            return theta, hr_freq, t
+
+    def generate_arrhythmia_profile(self, duration, mean_bpm=60, anomaly_prob=0.15):
+        """
+        產生帶有「病理性特徵」的心率曲線。
+        duration: 秒數
+        mean_bpm: 平均心率
+        anomaly_prob: 出現心律不整事件的機率 (0.15 代表 15% 的心跳會異常)
+        """
+        # 1. 計算理想狀態下，大概會有幾次心跳
+        avg_rr = 60.0 / mean_bpm
+        num_beats = int(duration / avg_rr * 1.2) # 多算一點當緩衝
+        
+        # 2. 生成基礎的 RR Intervals (包含正常的微幅變異)
+        # 正常人的心跳還是會有一點點抖動 (Normal sinus rhythm)
+        rr_intervals = np.random.normal(loc=avg_rr, scale=0.05*avg_rr, size=num_beats)
+        
+        # 3. === 注入病理性事件 (Pathological Events) ===
+        final_rr = []
+        i = 0
+        while i < len(rr_intervals):
+            # 擲骰子決定這一次心跳正不正常
+            is_anomaly = np.random.rand() < anomaly_prob
+            
+            if not is_anomaly:
+                # 沒事，就把正常的 RR 加進去
+                final_rr.append(rr_intervals[i])
+                i += 1
+            else:
+                # === 發生心律不整！隨機選一種狀況 ===
+                event_type = np.random.choice(['PVC', 'Missed', 'Delay'])
+                
+                if event_type == 'PVC': 
+                    # --- 過早搏動 (Premature Ventricular Contraction) ---
+                    # 特徵：這一跳很快來 (0.6x)，下一跳會補償性休息 (1.4x)
+                    premature_rr = rr_intervals[i] * 0.6 
+                    compensatory_pause = rr_intervals[i] * 1.4
+                    final_rr.append(premature_rr)
+                    final_rr.append(compensatory_pause)
+                    i += 1 # 消耗掉這一次原本的額度
+                    
+                elif event_type == 'Missed':
+                    # --- 漏拍 / 傳導阻滯 (Block) ---
+                    # 特徵：直接把兩次 RR 合併，變成超長的一次間隔 (2.0x)
+                    if i + 1 < len(rr_intervals):
+                        missed_rr = rr_intervals[i] + rr_intervals[i+1]
+                        final_rr.append(missed_rr)
+                        i += 2 # 一次消耗掉兩次心跳
+                    else:
+                        final_rr.append(rr_intervals[i])
+                        i += 1
+                        
+                elif event_type == 'Delay':
+                    # --- 隨機延遲 (Random Delay) ---
+                    # 特徵：單純慢了半拍
+                    delayed_rr = rr_intervals[i] * np.random.uniform(1.2, 1.5)
+                    final_rr.append(delayed_rr)
+                    i += 1
+
+        # 4. 將 RR Intervals 轉換為時間軸上的瞬時頻率 (Instantaneous Frequency)
+        # 因為 McSharry 需要的是「每個時間點的頻率」來積分相位
+        
+        # 計算每個心跳發生的絕對時間點 (Beat Times)
+        beat_times = np.cumsum(final_rr)
+        beat_times = np.insert(beat_times, 0, 0.0) # 起始點
+        
+        # 為了產生連續的頻率曲線，我們做簡單的階梯函數或插值
+        # 頻率 = 1 / RR
+        hr_values = 1.0 / np.array(final_rr)
+        
+        # 建立時間軸
+        t_total = np.linspace(0, duration, int(duration * self.fs))
+        
+        # 使用插值法將「離散的心率」擴展到「連續的時間軸」
+        # 'previous' 模式代表在下一次心跳來之前，頻率維持不變 (Step Function)
+        # 這能確保波形的寬度在該次心跳中保持固定
+        f_interp = interp1d(beat_times[:-1], hr_values, kind='previous', fill_value="extrapolate")
+        hr_freq_array = f_interp(t_total)
+        
+        # 5. 積分得到相位
+        theta = 2 * np.pi * np.cumsum(hr_freq_array) / self.fs
+        
+        return theta, hr_freq_array, t_total
 
     def get_random_bcg_params(self, hr_freq): 
         """ 自動生成一組隨機變異的 McSharry 參數。 策略：以一組「標準參數」為基底，進行隨機縮放與微擾。 """ 
@@ -20,13 +160,21 @@ class BedBCGGenerator:
         std_t = np.array([-1.4, -0.6, 0.0, 0.6, 1.8]) 
 
         width_scale = np.sqrt(1/hr_freq)
-        new_b = std_b * width_scale 
-        new_t = std_t * width_scale 
+        if hr_freq.ndim > 0:
+            width_scale = width_scale[np.newaxis, :] 
+            new_b = std_b[:, np.newaxis] * width_scale 
+            new_t = std_t[:, np.newaxis] * width_scale 
+        else:
+            new_b = std_b * width_scale
+            new_t = std_t * width_scale
+        # new_b = std_b * width_scale 
+        # new_t = std_t * width_scale 
         amp_noise = np.random.uniform(0.8, 1.2, size=5) 
         new_a = std_a #* amp_noise 
         pos_jitter = np.random.uniform(-0.01, 0.01, size=5) 
-        new_t = new_t + pos_jitter 
-        new_t[2] = 0.0 
+        pos_jitter = np.random.uniform(-0.02, 0.02, size=(5, hr_freq.shape[0]))
+        new_t = new_t + pos_jitter
+        new_t[2] = 0.0 # Lock J wave
         
         return new_a, new_b, new_t
 
@@ -73,6 +221,9 @@ class BedBCGGenerator:
         theta = 2 * np.pi * np.cumsum(f_inst) / self.fs
         
         # 3. 形態生成
+        # 產生相位與總心率 (混合了 RSA + Intrinsic HRV)
+        # theta, hr_mean, t = self.get_total_phase(duration, fs=100, mean_bpm=60, rsa_signal=resp_signal, hrv_scale=0.8)
+        theta, hr_mean, t = self.generate_arrhythmia_profile(duration, mean_bpm=60, anomaly_prob=0.15)
         bcg_pure = self.get_full_bcg_waveform(theta, hr_mean)
         # bcg_pure = self.apply_mattress_transfer_function(bcg_pure) * 3
         

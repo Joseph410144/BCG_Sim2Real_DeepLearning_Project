@@ -90,9 +90,9 @@ if __name__ == '__main__':
     training_path = '/Users/joseph/Documents/Program/Dataset/BCG/Synthesis/training'
     val_path = '/Users/joseph/Documents/Program/Dataset/BCG/Synthesis/validation'
     test_path = '/Users/joseph/Documents/Program/Dataset/BCG/Synthesis/test'
-    os.makedirs(training_path)
-    os.makedirs(val_path)
-    os.makedirs(test_path)
+    os.makedirs(training_path, exist_ok=True)
+    os.makedirs(val_path, exist_ok=True)
+    os.makedirs(test_path, exist_ok=True)
     generate_phase = {'training':(training_path, (data_number*8)//10), 'validation':(val_path, (data_number*2)//10), 'testing':(test_path, (data_number*1)//10)}
 
     # signal parameter

@@ -71,9 +71,7 @@ def train(net, device, epochs, lr, train_loader, test_loader, WeightDataPath, lo
     # cwt_loss = MultiResolutionSTFTLoss().to(DEVICE)
     cwt_loss = MorletCWTLoss(fs=100, fmin=0.7, fmax=10.0, num_freqs=48,
                          kernel_size=401, sigma=0.3, log_compress=True).to(DEVICE)
-    fn_loss = nn.BCEWithLogitsLoss()
 
-    # criterion = nn.MSELoss()
 
     best_train_loss = float('inf')
     best_val_loss = float('inf')
@@ -89,25 +87,15 @@ def train(net, device, epochs, lr, train_loader, test_loader, WeightDataPath, lo
         current_lr = optimizer.param_groups[0]['lr']
         logger_record.info(f"[Epoch {epoch+1}/{epochs}] Current LR: {current_lr:.10f}")
         
-        # for BCGSignal, label in tqdm(train_loader, desc=f"Training Epoch {epoch+1}", leave=False):
-        for BCGSignal, label, conf_label in tqdm(train_loader, desc=f"Training Epoch {epoch+1}", leave=False):
+        for BCGSignal, label in tqdm(train_loader, desc=f"Training Epoch {epoch+1}", leave=False):
             BCGSignal = BCGSignal.to(device=device, dtype=torch.float32)
             label = label.to(device=device, dtype=torch.float32)
-            conf_label = conf_label.to(device, dtype=torch.float32)
-            prediction, predict_conf_score = net(BCGSignal)
+            prediction = net(BCGSignal)
             
             """ original MSE loss """
             cwt_time = cwt_loss(prediction, label)
             mse_time = torch.mean((prediction - label)**2)
-            score_time = fn_loss(predict_conf_score, conf_label)
-            loss = cwt_time*0.5 + mse_time*0.5 + score_time
-            # loss = stft_loss(prediction, label)
-            """ R peak weight MSE loss """
-            # with torch.no_grad():
-            #     r_mask = batch_detect_rpeaks(label)
-
-            # # 加權 MSE Loss
-            # loss = weighted_mse_loss(prediction, label, r_mask)
+            loss = cwt_time*0.5 + mse_time*0.5
 
             """ backward propagation """
             optimizer.zero_grad()
@@ -130,7 +118,7 @@ def train(net, device, epochs, lr, train_loader, test_loader, WeightDataPath, lo
         # Validation
         net.eval()
         with torch.no_grad():
-            val_loss = test(net, test_loader, cwt_loss, fn_loss, device)
+            val_loss = test(net, test_loader, cwt_loss, device)
             val_loss_list.append(val_loss)
             logger_record.info(f"Epoch {epoch+1}: Validation Loss = {val_loss:.6f}")
 
@@ -146,24 +134,19 @@ def train(net, device, epochs, lr, train_loader, test_loader, WeightDataPath, lo
 
     return total_loss_list, val_loss_list
 
-def test(net, test_iter, criterion, score_criterion, device):
+def test(net, test_iter, criterion, device):
     total_loss_test = 0
     nums_ = 0
 
     with torch.no_grad():
-        # for X, y in tqdm(test_iter, desc=f"Validation", leave=False):
-        for X, y, z in tqdm(test_iter, desc=f"Validation", leave=False):
-            X, y, z = X.to(device=device, dtype=torch.float32), y.to(device=device, dtype=torch.float32), z.to(device=device, dtype=torch.float32)
-            predict, predict_conf_score = net(X)
+        for X, y in tqdm(test_iter, desc=f"Validation", leave=False):
+            X, y = X.to(device=device, dtype=torch.float32), y.to(device=device, dtype=torch.float32)
+            predict = net(X)
             """ original MSE loss """
-            # loss = stft_loss(predict, y)
             cwt_time = criterion(predict, y)
             mse_time = torch.mean((predict - y)**2)
-            score_time = score_criterion(predict_conf_score, z)
-            loss = cwt_time*0.5 + mse_time*0.5 + score_time
-            """ r peak weight MSE loss """
-            # r_mask = batch_detect_rpeaks(y)
-            # loss = weighted_mse_loss(predict, y, r_mask)
+            loss = cwt_time*0.5 + mse_time*0.5
+
             total_loss_test += loss.item()
             nums_ += 1
 
@@ -171,16 +154,14 @@ def test(net, test_iter, criterion, score_criterion, device):
 
     return total_loss_test
 
-weightPath = r'D:\Program\innolux_BCG_deep_learning\weight\BCG_HeartFilter\251231'
+weightPath = '/Users/joseph/Documents/Program/BCG_DeepLearning/weight/BCG_HeartFilter/260125'
 logger_record = get_logger(filename=os.path.join(weightPath, 'train_logger.log'))
 logger_record.info(f'Using synthesis BCG data to training model: add bad data to let model predict confident score for data')
 logger_record.info(f'\n*** parameters ***\nBatch size:{BATCH_SIZE}\nepochs:{NUM_EPOCHS}\nchannels:{NUM_CLASSES}\ndata length:{INPUT_LEN}\
                    \nlearning rate: {LEARNING_RATE}\nDevice:{DEVICE}\nweight decay: {WEIGHT_DECAY}\nlearning rate step size: {STEP_SIZE}')
 
-# trainset = BCGSynthesisDataset(root=r'E:\BCG_innolux_dataset\BCG_synthesis_data\train')
-# valset = BCGSynthesisDataset(root=r'E:\BCG_innolux_dataset\BCG_synthesis_data\validation')
-trainset = BCGSynthesisDataset_V3(root=r'E:\BCG_innolux_dataset\BCG_synthesis_data_v3\train')
-valset = BCGSynthesisDataset_V3(root=r'E:\BCG_innolux_dataset\BCG_synthesis_data_v3\validation')
+trainset = BCGSynthesisDataset(root=r'E:\BCG_innolux_dataset\BCG_synthesis_data\train')
+valset = BCGSynthesisDataset(root=r'E:\BCG_innolux_dataset\BCG_synthesis_data\validation')
 
 train_loader = DataLoader(dataset=trainset,
                           batch_size=BATCH_SIZE,
@@ -192,16 +173,10 @@ val_loader = DataLoader(dataset=valset,
                           shuffle=True,
                           drop_last=True)
 
-# model = LSTM.LSTM_BCGFilter_Pre(seq_len=INPUT_LEN, input_size=1, hidden_size=128, output_size=1,
-#             dropout=0.2, num_layers=6, bidirectional=True, repeat_times = 1)
-
-model = LSTM.LSTM_BCGFilter_Pre_Confidence(seq_len=INPUT_LEN, input_size=1, hidden_size=128, output_size=1,
+model = LSTM.LSTM_BCGFilter_Pre(seq_len=INPUT_LEN, input_size=1, hidden_size=128, output_size=1,
             dropout=0.2, num_layers=6, bidirectional=True, repeat_times = 1)
 
-# model = Linear_model.LinearBCG(seq_len=1000, p_drop=0.2, hidden=512)
-# model = CNN_1d.BCG_CNN_Small(seq_len=1000, channels=1, hidden=32, dropout=0.2)
 model.to(DEVICE)
-# model.load_state_dict(torch.load(r'weight\BCG_contrustion\251001\best_Test_model.pth', map_location=DEVICE))
 
 summary_output_path = os.path.join(weightPath, 'model_summary.txt')
 with open(summary_output_path, "w", encoding='utf-8-sig') as f:
