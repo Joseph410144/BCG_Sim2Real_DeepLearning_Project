@@ -1,0 +1,14 @@
+# Deep learning results
+weight
+
+# virtual environment
+.venv
+
+# python cache
+__pycache__
+
+# OS/editor artifacts
+.DS_Store
+
+# generated evaluation reports
+reports/

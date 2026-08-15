@@ -5,8 +5,12 @@ def get_logger(filename, verbosity=1, name=None):
     formatter = logging.Formatter(
         "[%(asctime)s][%(filename)s][line:%(lineno)d][%(levelname)s] %(message)s"
     )
-    logger = logging.getLogger(name)
+    logger = logging.getLogger(name or filename)
     logger.setLevel(level_dict[verbosity])
+    logger.propagate = False
+    for handler in logger.handlers[:]:
+        handler.close()
+        logger.removeHandler(handler)
 
     fh = logging.FileHandler(filename, "w", encoding='utf-8-sig')
     fh.setFormatter(formatter)

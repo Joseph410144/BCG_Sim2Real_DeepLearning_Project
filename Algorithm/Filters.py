@@ -12,6 +12,11 @@ def BandPassFilter(signal_, lowcut, highcut, step, fs, padlen=None):
     fs      : 取樣率
     padlen  : padding 長度(預設自動為信號長度的 1/2)
     """
+    signal_ = np.asarray(signal_)
+    if signal_.ndim != 1 or len(signal_) < 2:
+        raise ValueError("signal_ must be a one-dimensional signal with at least two samples")
+    if not 0 < lowcut < highcut < fs / 2:
+        raise ValueError("cutoffs must satisfy 0 < lowcut < highcut < fs/2")
     # 設計濾波器
     nyquist = 0.5 * fs
     low = lowcut / nyquist
@@ -21,6 +26,9 @@ def BandPassFilter(signal_, lowcut, highcut, step, fs, padlen=None):
     # 計算 padding 長度
     if padlen is None:
         padlen = min(len(signal_) // 2, 3 * max(len(b), len(a)))  # 安全建議值
+    padlen = min(int(padlen), len(signal_) - 1)
+    if padlen < 1:
+        raise ValueError("padlen must be at least 1")
 
     # 進行對稱 padding（mirror padding）
     pre = signal_[padlen-1::-1]   # 反轉前 padlen 點
@@ -43,6 +51,11 @@ def HighPassFilter(signal_, cutoff, step, fs, padlen=None):
     fs      : 取樣率
     padlen  : padding 長度（預設自動為信號長度的 1/2）
     """
+    signal_ = np.asarray(signal_)
+    if signal_.ndim != 1 or len(signal_) < 2:
+        raise ValueError("signal_ must be a one-dimensional signal with at least two samples")
+    if not 0 < cutoff < fs / 2:
+        raise ValueError("cutoff must satisfy 0 < cutoff < fs/2")
     # 設計濾波器
     nyquist = 0.5 * fs
     highpass = cutoff / nyquist
@@ -51,6 +64,9 @@ def HighPassFilter(signal_, cutoff, step, fs, padlen=None):
     # 計算 padding 長度
     if padlen is None:
         padlen = min(len(signal_) // 2, 3 * max(len(b), len(a)))  # 安全建議值
+    padlen = min(int(padlen), len(signal_) - 1)
+    if padlen < 1:
+        raise ValueError("padlen must be at least 1")
 
     # 進行對稱 padding（mirror padding）
     pre = signal_[padlen-1::-1]           # 反轉前 padlen 點

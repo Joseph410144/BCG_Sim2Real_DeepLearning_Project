@@ -1,0 +1,164 @@
+\documentclass[10pt,twocolumn]{article}
+\usepackage[a4paper,margin=1.7cm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,graphicx,microtype,url}
+\usepackage[hidelinks]{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+\graphicspath{{figures/}}
+
+\title{Algorithm-Aware Heart-Rate Estimation from Bed-Based Ballistocardiography:\\
+A Multi-Band Harmonic Baseline and Exploratory Confidence-Gated Fusion}
+\author{Joseph (Hao Hsiang) Wang\\
+\small Affiliation to be added\\
+\small \texttt{josephwang2400@gmail.com}}
+\date{Research progress manuscript --- August 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Ballistocardiography (BCG) enables unobtrusive cardiac monitoring but exhibits substantial morphology and amplitude variation across subjects, sensor distances, and recording conditions. This progress manuscript presents a reproducible evaluation of a physiology-informed heart-rate estimator, HeartV6, and a confidence-gated extension, HeartV7. HeartV6 combines overlapping band-pass channels, full-wave rectification, cross-band spectral aggregation, harmonic-consistency scoring, and time-domain interval refinement. A synchronized dataset of 9,006 ten-second BCG--ECG pairs from ten subjects was audited using a Pan--Tompkins-inspired QRS reference detector. This audit found that a legacy ECG detector differed by more than 5 beats per minute (BPM) on 2.31\% of segments and caused a systematic apparent failure for one subject. Using the audited reference, HeartV6 achieved 2.28 BPM mean absolute error (MAE), 7.15 BPM root mean squared error (RMSE), and 93.64\% of estimates within $\pm5$ BPM. Under outer leave-one-subject-out (LOSO) evaluation, HeartV7 reduced pooled MAE to 2.12 BPM and RMSE to 6.53 BPM. Subject-cluster bootstrap uncertainty nevertheless included no improvement, emphasizing the preliminary nature of the fusion result.
+\end{abstract}
+
+\section{Introduction}
+BCG measures heartbeat-induced mechanical motion and can be embedded in beds or other everyday surfaces, making it attractive for long-term monitoring without skin-contact electrodes \cite{sadek2019review,qiu2025dataset}. Its practical interpretation remains difficult because the measured waveform depends on body mechanics, posture, sensor coupling, respiration, motion, and the transfer response of the supporting structure. Consequently, a dominant BCG spectral component is not necessarily the cardiac fundamental frequency.
+
+Existing methods include peak detection, autocorrelation, probabilistic multi-channel fusion, and learned regression \cite{brueser2020autocorrelation,jung2021loadcells,jiao2021bilstm}. The present project investigates a hybrid premise: a model may first act as a cardiac-information-preserving filter, after which an interpretable periodicity algorithm performs heart-rate estimation. Before testing that premise, a strong and auditable classical baseline is required.
+
+The contributions of the current stage are: (1) a clean implementation and full-dataset evaluation of a multi-band harmonic estimator; (2) an ECG label-quality audit; (3) explicit confidence and failure diagnostics; (4) an exploratory fusion estimator; and (5) a leakage-safe subject-level protocol for future model selection.
+
+\section{Methods}
+\subsection{Data and preprocessing}
+The current internal dataset contains 9,006 synchronized ten-second pairs from ten subjects, sampled at 100~Hz. Each pair contains one BCG and one ECG channel. Sensor distance metadata are parsed from filenames. BCG input is filtered from 0.5--25~Hz and standardized per segment. Subject counts are imbalanced; therefore both pooled and subject-macro results are reported.
+
+\subsection{Audited ECG reference}
+Reference quality is critical because errors become both evaluation errors and, later, incorrect supervision. The audited detector follows the main Pan--Tompkins principles \cite{pan1985qrs}: ECG band-pass filtering, differentiation, squaring, moving integration, refractory-period peak selection, and local R-peak refinement. It reports RR-interval variability and confidence in addition to BPM. The legacy detector is retained for traceability.
+
+\subsection{HeartV6}
+Let $x(t)$ denote a BCG segment. Six overlapping bands are used:
+\begin{equation}
+\mathcal{B}=\{[1,5],[2,6],[3,7],[4,8],[5,9],[6,10]\}\ \mathrm{Hz}.
+\end{equation}
+For each band $b$, the filtered signal is full-wave rectified. The fused periodicity spectrum is
+\begin{equation}
+P(f)=\sum_{b\in\mathcal{B}}\left|\mathcal{F}\{|H_b\{x\}|\}(f)\right|.
+\end{equation}
+Rectification acts as an envelope-demodulation step: cardiac periodicity may reappear at low frequency even when mechanical energy is strongest at higher harmonics. Each candidate fundamental $f$ is scored by local energy around its harmonics,
+\begin{equation}
+S_h(f)=\frac{1}{K_f}\sum_{k: kf<3\,\mathrm{Hz}}
+\sum_{|\nu-kf|\leq0.15}P(\nu).
+\end{equation}
+After selecting a candidate family, the fundamental receives a 2.5 weighting when resolving fundamental/harmonic ambiguity. The selected frequency is isolated with two narrow band-pass stages. Peaks in the resulting waveform yield the final mean inter-beat interval and BPM. Confidence combines the spectral score margin and interval regularity.
+
+\subsection{HeartV7 exploratory fusion}
+HeartV7 retains HeartV6 by default. Autocorrelation replaces the V6 estimate only when the two estimates exhibit a predefined harmonic-ratio conflict, V6 confidence is low, and autocorrelation confidence is sufficiently high. This conservative rule is intended to correct obvious harmonic locking without broadly substituting the weaker baseline. Its current thresholds were explored on the available dataset; formal claims require the subject-wise protocol below.
+
+\subsection{Evaluation protocol}
+Metrics include MAE, RMSE, bias, Pearson correlation, the percentages within $\pm3$ and $\pm5$ BPM, and failure rate. We define ten nested leave-one-subject-out folds. In each fold, one subject is held out for testing, a different subject is used for validation, and the remaining eight subjects are available for development. No ten-second segments from a held-out subject may enter training or threshold selection. Final performance will aggregate fold-level test predictions and report subject-macro statistics.
+
+\subsection{Algorithm-aware residual filter}
+A dilated residual one-dimensional convolutional network produces
+$\hat{x}=x+gF_\theta(x)$, where a learned bounded gate $g$ limits initial
+distortion. Synthetic noisy/clean BCG pairs provide reconstruction
+pretraining. Real-data adaptation uses a differentiable approximation of the
+HeartV6 decision path: six overlapping fourth-order Butterworth zero-phase
+frequency responses, rectification, fused spectra, harmonic candidate scores,
+and a target-versus-distractor ranking objective. Real-data subsets are sampled
+equally across training subjects. Identity and residual total-variation terms
+discourage unconstrained waveform synthesis.
+
+\section{Results}
+\begin{table}[t]
+\centering
+\caption{Performance on 9,006 segments using the audited ECG reference. HeartV7 uses outer-LOSO predictions.}
+\label{tab:overall}
+\begin{tabular}{lrrrr}
+\toprule
+Method & MAE & RMSE & $\pm3$ & $\pm5$ \\
+ & BPM & BPM & \% & \% \\
+\midrule
+FFT peak & 22.32 & 39.21 & 47.38 & 54.97 \\
+Autocorrelation & 6.66 & 20.93 & 85.80 & 86.72 \\
+HeartV6 & 2.28 & 7.15 & 88.13 & 93.64 \\
+HeartV7 (LOSO) & \textbf{2.12} & \textbf{6.53} & \textbf{88.69} & \textbf{94.17} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+HeartV6 substantially outperformed direct FFT and autocorrelation baselines (Table~\ref{tab:overall}, Fig.~\ref{fig:overall}). Out-of-fold HeartV7 improved pooled MAE by 7.2\% and RMSE by 8.7\% relative to HeartV6. Pearson correlation increased from 0.697 to 0.717. Subject-macro MAE changed only from 2.469 to 2.439 BPM. A 10,000-iteration subject-cluster bootstrap estimated a macro-MAE difference of $-0.031$ BPM (95\% interval $-0.278$ to $+0.321$ BPM; probability of improvement 0.615). Thus the current data do not establish a reliable cross-subject advantage.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{overall_performance.pdf}
+\caption{Pooled baseline comparison. Lower is better for MAE/RMSE; higher is better for within-$\pm5$ BPM.}
+\label{fig:overall}
+\end{figure*}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{subject_mae.pdf}
+\caption{Subject-wise MAE using outer-LOSO HeartV7 predictions. Heterogeneous effects motivate additional subjects and conservative model selection.}
+\label{fig:subject}
+\end{figure}
+
+\subsection{Reference audit}
+The mean absolute disagreement between legacy and audited ECG estimates was 1.12 BPM, with 2.31\% exceeding 5 BPM. For Subject 7, the legacy mean was 75.2 BPM whereas the audited reference was 63.9 BPM; HeartV6 averaged 63.5 BPM. Replacing the erroneous reference reduced apparent Subject-7 HeartV6 MAE from 12.26 to 2.46 BPM. This demonstrates that label auditing is necessary before algorithm optimization or ECG-supervised learning.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{reference_audit.pdf}
+\caption{Legacy versus audited ECG heart-rate estimates. Off-diagonal observations identify reference-label disagreements requiring review.}
+\label{fig:audit}
+\end{figure}
+
+\subsection{Failure and confidence analysis}
+HeartV6 produced 8,433 estimates within $\pm5$ BPM. Remaining errors comprised 327 moderate errors, 138 other gross errors, 64 half-rate errors, and 44 double-rate errors. Confidence was negatively associated with absolute error (Spearman $\rho=-0.158$). Although weak, confidence supported a useful coverage--accuracy trade-off (Fig.~\ref{fig:coverage}). Outer-LOSO binned-isotonic calibration of $P(|e|\leq5\ \mathrm{BPM})$ obtained a Brier score of 0.0586, expected calibration error of 0.0043, and AUC of 0.650. Calibration was numerically accurate but had limited discrimination because 93.6\% of samples belonged to the positive class.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{coverage_accuracy.pdf}
+\caption{HeartV6 confidence--coverage curve. Rejecting low-confidence segments reduces MAE, but stronger calibration remains necessary.}
+\label{fig:coverage}
+\end{figure}
+
+\subsection{Preliminary residual-filter pilot}
+Before full LOSO training, two small folds were used as an implementation and
+directionality check. Each fold used 1,000 real training segments balanced
+across eight subjects, 200 validation segments from a ninth subject, and all
+segments from the held-out test subject. Table~\ref{tab:filterpilot} reports
+test-only results. The filter improved HeartV6 MAE and RMSE in both folds, but
+the sample-level bootstrap interval for Subject~1 included no difference. In
+Subject~2, raw HeartV7 achieved 1.261 BPM MAE and remained slightly better than
+filtered HeartV6. These pilot results are not a substitute for ten-fold LOSO.
+
+\begin{table}[t]
+\centering
+\caption{Exploratory held-out residual-filter pilot (BPM).}
+\label{tab:filterpilot}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{lrrrr}
+\toprule
+Subject & Raw MAE & Filt. MAE & Raw RMSE & Filt. RMSE \\
+\midrule
+Subject 1 ($n=348$) & 1.369 & \textbf{1.257} & 3.287 & \textbf{2.604} \\
+Subject 2 ($n=270$) & 1.345 & \textbf{1.298} & 2.424 & \textbf{2.019} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion}
+The results support the central signal-processing hypothesis: cardiac periodicity can be recovered by aggregating rectified envelopes across multiple mechanical-frequency bands and evaluating harmonic consistency. The approach is more robust than selecting a single FFT peak and more accurate than the tested autocorrelation baseline.
+
+Several limitations prevent the current HeartV7 values from being interpreted as final generalization evidence. First, although each outer test subject was excluded from threshold selection, the candidate rule family was designed after exploratory inspection of the same study dataset. Second, only ten subjects are represented and sample counts are highly imbalanced; the cluster-bootstrap interval crosses zero. Third, the QRS detector, although audited and confidence-scored, has not yet been compared with expert beat annotations. Fourth, segments appear to emphasize relatively stationary conditions; motion and posture diversity require explicit analysis. Finally, BPM accuracy does not establish beat-to-beat interval or HRV accuracy.
+
+The preliminary deep component supports continued evaluation but not a generalization claim. An initial envelope-energy loss reduced its own validation objective while worsening held-out HeartV6, demonstrating that a convenient spectral proxy can be misaligned with the downstream estimator. Matching the HeartV6 candidate-scoring path increased surrogate-versus-algorithm candidate agreement from approximately 65\% to 96.6\% on Subject~1 and produced improvements in the first two pilot folds. The principal comparison remains raw HeartV6/V7 versus deep-filtered HeartV6/V7 under the complete nested subject-level protocol.
+
+\section{Conclusion}
+HeartV6 is a strong interpretable baseline for the present bed-based BCG dataset, achieving 2.28 BPM MAE across 9,006 audited segments. ECG reference auditing corrected a major false failure, highlighting the importance of label quality. Outer-LOSO confidence-gated fusion reduced pooled MAE to 2.12 BPM, but the subject-level uncertainty interval included no benefit. These findings establish the classical foundation and evidential constraints required for a defensible algorithm-aware Sim2Real filtering study.
+
+\section*{Reproducibility Statement}
+The repository contains deterministic data discovery, estimator APIs, baseline evaluation, failure analysis, subject-fold generation, tests, and scripts that regenerate all figures in this manuscript. Model and data paths are configurable. The current manuscript is a research progress report, not a clinical validation or medical-device claim.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+\end{document}

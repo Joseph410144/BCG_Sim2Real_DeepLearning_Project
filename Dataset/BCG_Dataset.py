@@ -7,6 +7,18 @@ from torch.utils.data import Dataset
 from scipy.fft import fft, ifft, fftfreq
 from Algorithm.Data_pre_processing import zscore_normalize, regular
 from Algorithm.Filters import BandPassFilter, HighPassFilter
+from Algorithm.ecg_reference import detect_ecg_r_peaks
+from Dataset.metadata import parse_real_recording_name
+
+
+def _npy_files(root):
+    """Return a deterministic list of dataset files and fail with a useful error."""
+    if not os.path.isdir(root):
+        raise FileNotFoundError(f"Dataset directory does not exist: {root}")
+    files = sorted(name for name in os.listdir(root) if name.lower().endswith(".npy"))
+    if not files:
+        raise FileNotFoundError(f"No .npy files found in dataset directory: {root}")
+    return files
 
 class BCG2ECGDataset(Dataset):
     def __init__(self, root):
@@ -16,7 +28,7 @@ class BCG2ECGDataset(Dataset):
         ##############################################
         # load image path and annotations
         self.root = root
-        self.signals = os.listdir(root)
+        self.signals = _npy_files(root)
 
     def __getitem__(self, index):
         ##############################################
@@ -33,7 +45,7 @@ class BCG2ECGDataset(Dataset):
         ### Indicate the total size of the dataset
         ##############################################
         return len(self.signals)
-    
+
 class BCGContrastiveDataset(Dataset):
     def __init__(self, root):
         ##############################################
@@ -42,7 +54,7 @@ class BCGContrastiveDataset(Dataset):
         ##############################################
         # load image path and annotations
         self.root = root
-        self.signals = os.listdir(root)
+        self.signals = _npy_files(root)
 
     def __getitem__(self, index):
         ##############################################
@@ -62,7 +74,7 @@ class BCGContrastiveDataset(Dataset):
         ### Indicate the total size of the dataset
         ##############################################
         return len(self.signals)
-    
+
     def _augment_(self, x):
         # 如果 x 是 numpy array，轉為 tensor
         if isinstance(x, np.ndarray):
@@ -72,7 +84,7 @@ class BCGContrastiveDataset(Dataset):
         x = x + noise
 
         return x
-    
+
 class BCGSynthesisDataset(Dataset):
     def __init__(self, root):
         ##############################################
@@ -81,7 +93,7 @@ class BCGSynthesisDataset(Dataset):
         ##############################################
         # load image path and annotations
         self.root = root
-        self.signals = os.listdir(root)
+        self.signals = _npy_files(root)
 
     def __getitem__(self, index):
         ##############################################
@@ -111,7 +123,7 @@ class BCGSynthesisDataset_V3(Dataset):
         ##############################################
         # load image path and annotations
         self.root = root
-        self.signals = os.listdir(root)
+        self.signals = _npy_files(root)
 
     def __getitem__(self, index):
         ##############################################
@@ -136,6 +148,41 @@ class BCGSynthesisDataset_V3(Dataset):
         ### Indicate the total size of the dataset
         ##############################################
         return len(self.signals)
-    
+
+
+class RealBCGHeartRateDataset(Dataset):
+    """Real BCG input with ECG-derived HR supervision and subject filtering."""
+
+    def __init__(self, root, subject_ids=None, fs=100):
+        self.root = root
+        self.fs = fs
+        allowed = None if subject_ids is None else {int(subject) for subject in subject_ids}
+        self.signals = []
+        for filename in _npy_files(root):
+            metadata = parse_real_recording_name(filename)
+            if allowed is None or metadata.subject_id in allowed:
+                self.signals.append(filename)
+        if not self.signals:
+            raise FileNotFoundError(f"No recordings matched requested subjects in {root}")
+        self._hr_cache = {}
+
+    def __getitem__(self, index):
+        filename = self.signals[index]
+        pair = np.load(os.path.join(self.root, filename))
+        if pair.shape != (2, 1000) or not np.isfinite(pair).all():
+            raise ValueError(f"Expected finite (2, 1000) recording: {filename}")
+        bcg = BandPassFilter(pair[0], 0.5, 25, 4, self.fs, padlen=500)
+        bcg = zscore_normalize(bcg).astype(np.float32)
+        if filename not in self._hr_cache:
+            reference = detect_ecg_r_peaks(pair[1], fs=self.fs)
+            if not reference.valid:
+                raise ValueError(f"Invalid ECG reference for {filename}: {reference.reason}")
+            self._hr_cache[filename] = np.float32(reference.bpm)
+        metadata = parse_real_recording_name(filename)
+        return np.asarray([bcg], dtype=np.float32), self._hr_cache[filename], metadata.subject_id, filename
+
+    def __len__(self):
+        return len(self.signals)
+
 if __name__ == '__main__':
     pass

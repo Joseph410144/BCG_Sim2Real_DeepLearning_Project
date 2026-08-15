@@ -13,8 +13,9 @@ def zscore_normalize(x):
         x = x.detach().cpu().numpy()  # 確保轉成 numpy
     mu = np.mean(x)
     sigma = np.std(x)
-    x_norm = (x-mu)/sigma
-    return x_norm
+    if not np.isfinite(sigma) or sigma == 0:
+        return np.zeros_like(x, dtype=float)
+    return (x-mu)/sigma
 
 def regular(x):
     """
@@ -24,8 +25,10 @@ def regular(x):
     """
     min_x = np.min(x)
     max_x = np.max(x)
-    x_re = (x-min_x)/(max_x-min_x)
-    return x_re
+    value_range = max_x-min_x
+    if not np.isfinite(value_range) or value_range == 0:
+        return np.zeros_like(x, dtype=float)
+    return (x-min_x)/value_range
 
 def Smoothmethod(data, method, point):
   """ 

@@ -1,197 +1,224 @@
-import os
-import math
-import torch
-import torch.nn.functional as F
-import matplotlib.pyplot as plt
+"""Train the synthetic BCG cardiac-component denoising model."""
 
+import argparse
+import json
+import math
+import os
+import random
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from torch import optim
+from torch.utils.data import DataLoader, Subset
+from torchinfo import summary
 from tqdm import tqdm
+
+from Dataset.BCG_Dataset import BCGSynthesisDataset
+from Model.LSTM import LSTM_BCGFilter_Pre
+from Model.Loss_Function import MorletCWTLoss
 from logger import get_logger
 
-from torch import optim, nn
-from torch.utils.data import DataLoader
-from torchinfo import summary
 
-from Model import LSTM, Linear_model, CNN_1d
-from Dataset.BCG_Dataset import BCGSynthesisDataset, BCGSynthesisDataset_V3
-from Algorithm.ECG_heartrate_alg import ECG_R_peak_weight
-from Model.Loss_Function import MorletCWTLoss, MultiResolutionSTFTLoss
-
-# Parameters
-BATCH_SIZE = 128
-NUM_EPOCHS = 200
-NUM_CLASSES = 1
-INPUT_LEN = 1000
-
-MOMENTUM = 0.9
-LEARNING_RATE = 0.005
-WEIGHT_DECAY = 1e-3
-STEP_SIZE = 50
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-def stft_loss(pred_bcg, target_bcg, window_length=256, fs=100, band=10, w_time=0.5, w_fft=0.5, eps=1e-7):
-    if pred_bcg.dim() == 3:
-        pred_bcg = pred_bcg.squeeze(1)
-    if target_bcg.dim() == 3:
-        target_bcg = target_bcg.squeeze(1)
-
-    window = torch.hann_window(window_length=window_length).to(DEVICE)
-    # pred,target: [B,C,T]
-    pred_stft = torch.stft(pred_bcg, win_length=window_length, window=window, n_fft=256, hop_length=32, return_complex=True)
-    target_stft = torch.stft(target_bcg, win_length=window_length, window=window, n_fft=256, hop_length=32, return_complex=True)
-
-    sc_loss = torch.norm(torch.abs(target_stft) - torch.abs(pred_stft), p='fro')/torch.norm(torch.abs(target_stft), p='fro')
-    mag_loss = F.l1_loss(torch.log(torch.abs(target_stft)+1e-1), torch.log(torch.abs(pred_stft)+1e-1))
-    mse_time = torch.mean((pred_bcg - target_bcg)**2)
+PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_DATA_ROOT = PROJECT_ROOT.parent / "Dataset" / "BCG" / "Synthesis"
 
 
-    return w_time*mse_time + (w_fft)*sc_loss + eps #+ (w_fft/2)*mag_loss
-
-def fft_loss(pred_bcg, target_bcg, fs=100, band=10, w_time=0.2, w_fft=0.8, eps=1e-7):
-    # pred,target: [B,C,T]
-    pred_fft = torch.abs(torch.fft.rfft(pred_bcg, dim=-1))  # [B,C,F]
-    target_fft = torch.abs(torch.fft.rfft(target_bcg, dim=-1))
-
-    freqs = torch.fft.rfftfreq(pred_bcg.shape[-1], d=1.0/fs).to(pred_bcg.device)
-    band_mask = freqs <= band
-    band_mask = band_mask
-    pred_fft = pred_fft[:, :, band_mask]
-    target_fft = target_fft[:, :, band_mask]
-
-    pred_fft = (pred_fft - pred_fft.mean(dim=-1, keepdim=True)) / pred_fft.std(dim=-1, keepdim=True)
-    target_fft = (target_fft - target_fft.mean(dim=-1, keepdim=True)) / target_fft.std(dim=-1, keepdim=True)
-
-    mse_time = torch.mean((pred_bcg - target_bcg)**2)
-    mse_fft = torch.mean((pred_fft - target_fft)**2)
-
-    return w_time*mse_time + w_fft*mse_fft + eps
-
-def train(net, device, epochs, lr, train_loader, test_loader, WeightDataPath, logger_record):
-    optimizer = optim.Adam(net.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=STEP_SIZE, gamma=0.1)  # 每50個epochs lr乘以0.5
-    # cwt_loss = MultiResolutionSTFTLoss().to(DEVICE)
-    cwt_loss = MorletCWTLoss(fs=100, fmin=0.7, fmax=10.0, num_freqs=48,
-                         kernel_size=401, sigma=0.3, log_compress=True).to(DEVICE)
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--train-dir", type=Path, default=DEFAULT_DATA_ROOT / "training")
+    parser.add_argument("--val-dir", type=Path, default=DEFAULT_DATA_ROOT / "validation")
+    parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "weight" / "BCG_HeartFilter" / "run")
+    parser.add_argument("--pretrained", type=Path)
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--learning-rate", type=float, default=0.005)
+    parser.add_argument("--weight-decay", type=float, default=1e-3)
+    parser.add_argument("--step-size", type=int, default=50)
+    parser.add_argument("--hidden-size", type=int, default=128)
+    parser.add_argument("--num-layers", type=int, default=6)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--input-length", type=int, default=1000)
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--max-train-samples", type=int, help="Useful for smoke tests")
+    parser.add_argument("--max-val-samples", type=int, help="Useful for smoke tests")
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    return parser.parse_args(argv)
 
 
-    best_train_loss = float('inf')
-    best_val_loss = float('inf')
+def resolve_device(requested):
+    if requested != "auto":
+        return torch.device(requested)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
-    total_loss_list = []
-    val_loss_list = []
 
-    for epoch in range(epochs):
-        net.train()
-        running_train_loss = 0.0
-        batch_count = 0
+def seed_everything(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-        current_lr = optimizer.param_groups[0]['lr']
-        logger_record.info(f"[Epoch {epoch+1}/{epochs}] Current LR: {current_lr:.10f}")
-        
-        for BCGSignal, label in tqdm(train_loader, desc=f"Training Epoch {epoch+1}", leave=False):
-            BCGSignal = BCGSignal.to(device=device, dtype=torch.float32)
-            label = label.to(device=device, dtype=torch.float32)
-            prediction = net(BCGSignal)
-            
-            """ original MSE loss """
-            cwt_time = cwt_loss(prediction, label)
-            mse_time = torch.mean((prediction - label)**2)
-            loss = cwt_time*0.5 + mse_time*0.5
 
-            """ backward propagation """
-            optimizer.zero_grad()
+def limited_dataset(dataset, maximum):
+    if maximum is None or maximum >= len(dataset):
+        return dataset
+    return Subset(dataset, range(maximum))
+
+
+def save_checkpoint(path, epoch, model, optimizer, scheduler, best_val_loss, train_losses, val_losses):
+    torch.save({
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "best_val_loss": best_val_loss,
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+    }, path)
+
+
+def load_checkpoint(path, model, optimizer, scheduler, device):
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+    return (
+        checkpoint["epoch"] + 1,
+        checkpoint["best_val_loss"],
+        checkpoint.get("train_losses", checkpoint.get("total_loss_list", [])),
+        checkpoint.get("val_losses", checkpoint.get("val_loss_list", [])),
+    )
+
+
+def combined_loss(prediction, target, cwt_loss):
+    return 0.5 * cwt_loss(prediction, target) + 0.5 * torch.mean((prediction - target) ** 2)
+
+
+def evaluate(model, loader, criterion, device):
+    model.eval()
+    total = 0.0
+    with torch.inference_mode():
+        for signals, targets in tqdm(loader, desc="Validation", leave=False):
+            signals = signals.to(device=device, dtype=torch.float32)
+            targets = targets.to(device=device, dtype=torch.float32)
+            total += combined_loss(model(signals), targets, criterion).item()
+    if not len(loader):
+        raise ValueError("Validation loader is empty")
+    return total / len(loader)
+
+
+def train(model, train_loader, val_loader, optimizer, scheduler, criterion, device,
+          output_dir, epochs, start_epoch=0, best_val_loss=math.inf,
+          train_losses=None, val_losses=None, logger=None):
+    train_losses = [] if train_losses is None else train_losses
+    val_losses = [] if val_losses is None else val_losses
+    best_train_loss = min(train_losses, default=math.inf)
+
+    for epoch in range(start_epoch, epochs):
+        model.train()
+        running_loss = 0.0
+        for signals, targets in tqdm(train_loader, desc=f"Training {epoch + 1}/{epochs}", leave=False):
+            signals = signals.to(device=device, dtype=torch.float32)
+            targets = targets.to(device=device, dtype=torch.float32)
+            optimizer.zero_grad(set_to_none=True)
+            loss = combined_loss(model(signals), targets, criterion)
             loss.backward()
-            """ avoid gradient explosion """
-            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1)  # ← 加這行
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            running_loss += loss.item()
 
-            running_train_loss += loss.item()
-            batch_count += 1
+        if not len(train_loader):
+            raise ValueError("Training loader is empty")
+        train_loss = running_loss / len(train_loader)
+        train_losses.append(train_loss)
+        if train_loss < best_train_loss:
+            best_train_loss = train_loss
+            torch.save(model.state_dict(), output_dir / "best_train_model.pth")
 
-            if loss.item() < best_train_loss:
-                best_train_loss = loss.item()
-                torch.save(net.state_dict(), os.path.join(WeightDataPath, 'best_Train_model.pth'))
+        val_loss = evaluate(model, val_loader, criterion, device)
+        val_losses.append(val_loss)
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), output_dir / "best_val_model.pth")
+            logger.info("New best validation model: epoch=%d loss=%.6f", epoch + 1, val_loss)
 
-        avg_train_loss = running_train_loss / batch_count
-        total_loss_list.append(avg_train_loss)
-        logger_record.info(f"Epoch {epoch+1}: Avg Train Loss = {avg_train_loss:.6f}")
-
-        # Validation
-        net.eval()
-        with torch.no_grad():
-            val_loss = test(net, test_loader, cwt_loss, device)
-            val_loss_list.append(val_loss)
-            logger_record.info(f"Epoch {epoch+1}: Validation Loss = {val_loss:.6f}")
-
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                torch.save(net.state_dict(), os.path.join(WeightDataPath, 'best_Test_model.pth'))
-                logger_record.info(f"New best validation model saved at epoch {epoch+1}, loss: {best_val_loss:.6f}")
-
-        # Update learning rate
+        logger.info("Epoch %d/%d lr=%.8g train=%.6f val=%.6f", epoch + 1, epochs,
+                    optimizer.param_groups[0]["lr"], train_loss, val_loss)
         scheduler.step()
-
-    logger_record.info(f"best validation model loss: {best_val_loss:.6f}")
-
-    return total_loss_list, val_loss_list
-
-def test(net, test_iter, criterion, device):
-    total_loss_test = 0
-    nums_ = 0
-
-    with torch.no_grad():
-        for X, y in tqdm(test_iter, desc=f"Validation", leave=False):
-            X, y = X.to(device=device, dtype=torch.float32), y.to(device=device, dtype=torch.float32)
-            predict = net(X)
-            """ original MSE loss """
-            cwt_time = criterion(predict, y)
-            mse_time = torch.mean((predict - y)**2)
-            loss = cwt_time*0.5 + mse_time*0.5
-
-            total_loss_test += loss.item()
-            nums_ += 1
-
-    total_loss_test /= nums_
-
-    return total_loss_test
-
-weightPath = '/Users/joseph/Documents/Program/BCG_DeepLearning/weight/BCG_HeartFilter/260125'
-logger_record = get_logger(filename=os.path.join(weightPath, 'train_logger.log'))
-logger_record.info(f'Using synthesis BCG data to training model: add bad data to let model predict confident score for data')
-logger_record.info(f'\n*** parameters ***\nBatch size:{BATCH_SIZE}\nepochs:{NUM_EPOCHS}\nchannels:{NUM_CLASSES}\ndata length:{INPUT_LEN}\
-                   \nlearning rate: {LEARNING_RATE}\nDevice:{DEVICE}\nweight decay: {WEIGHT_DECAY}\nlearning rate step size: {STEP_SIZE}')
-
-trainset = BCGSynthesisDataset(root=r'E:\BCG_innolux_dataset\BCG_synthesis_data\train')
-valset = BCGSynthesisDataset(root=r'E:\BCG_innolux_dataset\BCG_synthesis_data\validation')
-
-train_loader = DataLoader(dataset=trainset,
-                          batch_size=BATCH_SIZE,
-                          shuffle=True,
-                          drop_last=True)
-
-val_loader = DataLoader(dataset=valset,
-                          batch_size=BATCH_SIZE,
-                          shuffle=True,
-                          drop_last=True)
-
-model = LSTM.LSTM_BCGFilter_Pre(seq_len=INPUT_LEN, input_size=1, hidden_size=128, output_size=1,
-            dropout=0.2, num_layers=6, bidirectional=True, repeat_times = 1)
-
-model.to(DEVICE)
-
-summary_output_path = os.path.join(weightPath, 'model_summary.txt')
-with open(summary_output_path, "w", encoding='utf-8-sig') as f:
-    report = summary(
-                model,
-                input_size=(1, NUM_CLASSES, INPUT_LEN),
-                device=DEVICE  # 每一行寫進檔案
-            )
-    f.write(str(report))
+        save_checkpoint(output_dir / "checkpoint.pth", epoch, model, optimizer, scheduler,
+                        best_val_loss, train_losses, val_losses)
+    return train_losses, val_losses, best_val_loss
 
 
-Total_Loss, Val_Loss = train(model, DEVICE, NUM_EPOCHS, LEARNING_RATE, train_loader, val_loader, weightPath, logger_record)
+def main(argv=None):
+    args = parse_args(argv)
+    if args.epochs < 1 or args.batch_size < 1:
+        raise ValueError("epochs and batch-size must be positive")
+    seed_everything(args.seed)
+    device = resolve_device(args.device)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    logger = get_logger(str(args.output_dir / "train.log"), name="bcg-training")
 
-plt.plot(Total_Loss, label='Train loss')
-plt.plot(Val_Loss, label="Val loss")
-plt.legend()
-plt.savefig(os.path.join(weightPath, 'loss.png'))
-plt.close()
+    train_dataset = limited_dataset(BCGSynthesisDataset(str(args.train_dir)), args.max_train_samples)
+    val_dataset = limited_dataset(BCGSynthesisDataset(str(args.val_dir)), args.max_val_samples)
+    generator = torch.Generator().manual_seed(args.seed)
+    loader_options = dict(batch_size=args.batch_size, num_workers=args.num_workers,
+                          pin_memory=device.type == "cuda")
+    train_loader = DataLoader(train_dataset, shuffle=True, drop_last=False,
+                              generator=generator, **loader_options)
+    val_loader = DataLoader(val_dataset, shuffle=False, drop_last=False, **loader_options)
+
+    model = LSTM_BCGFilter_Pre(args.input_length, 1, args.hidden_size, 1,
+                               args.dropout, args.num_layers, True, 1).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+    criterion = MorletCWTLoss(fs=100, fmin=0.7, fmax=10.0, num_freqs=48,
+                              kernel_size=401, sigma=0.3, log_compress=True).to(device)
+
+    start_epoch, best_val_loss, train_losses, val_losses = 0, math.inf, [], []
+    checkpoint_path = args.output_dir / "checkpoint.pth"
+    if args.resume and checkpoint_path.is_file():
+        start_epoch, best_val_loss, train_losses, val_losses = load_checkpoint(
+            checkpoint_path, model, optimizer, scheduler, device)
+        logger.info("Resuming at epoch %d", start_epoch + 1)
+    elif args.pretrained:
+        model.load_state_dict(torch.load(args.pretrained, map_location=device, weights_only=True))
+        logger.info("Loaded pretrained weights: %s", args.pretrained)
+
+    config = {**vars(args), "device": str(device)}
+    for key, value in config.items():
+        if isinstance(value, Path):
+            config[key] = str(value.resolve())
+    (args.output_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+    (args.output_dir / "model_summary.txt").write_text(
+        str(summary(model, input_size=(1, 1, args.input_length), device=device, verbose=0)),
+        encoding="utf-8",
+    )
+    logger.info("device=%s train_samples=%d val_samples=%d", device, len(train_dataset), len(val_dataset))
+
+    train_losses, val_losses, best_val_loss = train(
+        model, train_loader, val_loader, optimizer, scheduler, criterion, device,
+        args.output_dir, args.epochs, start_epoch, best_val_loss, train_losses, val_losses, logger)
+
+    plt.figure()
+    plt.plot(train_losses, label="Train")
+    plt.plot(val_losses, label="Validation")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(args.output_dir / "loss.png")
+    plt.close()
+    logger.info("Training complete. Best validation loss: %.6f", best_val_loss)
+
+
+if __name__ == "__main__":
+    main()
