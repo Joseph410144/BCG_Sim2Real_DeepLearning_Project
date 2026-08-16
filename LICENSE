@@ -1,6 +1,17 @@
+Licensing notice
+
+Unless a file states otherwise:
+
+- Source code in this repository is licensed under the MIT License below.
+- The manuscript, documentation, and original figures are licensed under the
+  Creative Commons Attribution 4.0 International License (CC BY 4.0). See
+  LICENSE-CONTENT.md for attribution and scope.
+- Personal or third-party datasets, trained model weights, and generated
+  per-recording results are not distributed or licensed by this repository.
+
 MIT License
 
-Copyright (c) 2026 Joseph Wang
+Copyright (c) 2026 Joseph (Hao Hsiang) Wang
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

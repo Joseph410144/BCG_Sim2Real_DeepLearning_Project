@@ -1,0 +1,9 @@
+{
+  "experiment": "nonlearned_representation_recovery_pchip_boundary_correction",
+  "dataset_interpretation": "single_person_repeated_recordings",
+  "seed": 42,
+  "methods": {
+    "contiguous_sample_loss": ["pchip_interpolation"]
+  },
+  "normalization_denominator_epsilon": 0.000001
+}

@@ -143,16 +143,28 @@ python -m compileall -q . -x '(^|/)(.venv|.git)/'
 
 ## LaTeX 研究報告
 
-先由最新評估結果重建圖表，再編譯論文：
+先由 Experiments 1–4 的彙總結果重建 publication figures，再編譯論文：
 
 ```bash
-python generate_paper_assets.py
+python paper/generate_figures.py
 cd paper
 tectonic main.tex
 ```
 
-原始稿位於 `paper/main.tex`，輸出為 `paper/main.pdf`。目前版本是研究進度稿；HeartV7 數值屬 exploratory development-set results，待 nested leave-one-subject-out 實驗後才能改寫為正式 generalization claim。
+原始稿位於 `paper/main.tex`，輸出為 `paper/main.pdf`。目前版本整合控制式
+AM、HeartV6 failure-stage、representation robustness 與 non-learned reconstruction
+實驗；研究限制與未來的 task-aware learning 假說均在文中明確標示。
 
 ## 研究結果解讀
 
 合成驗證 loss 只能說明模型學會合成資料的重建任務。Sim2Real 結論應以完全獨立、按受試者切分的真實測試資料為準，並同時報告傳統方法與模型方法的心率指標、失敗率及信賴區間。本專案不應直接作為醫療診斷工具。
+
+## 授權與引用
+
+本專案的程式碼採用 [MIT License](LICENSE)。論文、文件與本專案原創圖表採用
+[Creative Commons Attribution 4.0 International](LICENSE-CONTENT.md)
+（CC BY 4.0）：可以自由分享、修改與使用，但必須標示作者、作品名稱與來源，
+附上授權連結，並註明是否曾修改。
+
+若將本專案用於學術研究，請使用 [`CITATION.cff`](CITATION.cff) 提供的引用資訊。
+個人或第三方資料、模型權重及逐筆分析輸出不包含在上述授權範圍內。

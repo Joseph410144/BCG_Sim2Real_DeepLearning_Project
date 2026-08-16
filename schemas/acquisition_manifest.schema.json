@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "acquisition_manifest.schema.json",
+  "title": "Single-person repeated-recording BCG acquisition manifest row",
+  "type": "object",
+  "required": [
+    "schema_version", "dataset_interpretation", "person_id",
+    "legacy_dataset_id", "recording_date", "recording_time",
+    "sensor_distance_cm", "recording_session_id", "continuous_source_id",
+    "window_id", "window_start_sample", "window_end_sample_exclusive",
+    "source_filename", "file_sha256", "data_origin", "overlap_status",
+    "dependency_group", "allowed_split_group", "provenance_status"
+  ],
+  "properties": {
+    "dataset_interpretation": {"const": "single_person_repeated_recordings"},
+    "person_id": {"type": "string"},
+    "legacy_dataset_id": {"type": "integer"},
+    "recording_session_id": {"type": "string"},
+    "continuous_source_id": {"type": "string"},
+    "window_id": {"type": "integer", "minimum": 0},
+    "window_start_sample": {"type": "integer", "minimum": 0},
+    "window_end_sample_exclusive": {"type": "integer", "minimum": 1},
+    "file_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_sha256": {"type": "string"},
+    "data_origin": {"enum": ["physical_recording", "synthetic", "perturbed"]},
+    "content_verified": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

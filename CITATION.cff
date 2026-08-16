@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, manuscript, or its original figures, please cite
+  the work using the metadata below.
+title: BCG Sim2Real Deep Learning Project
+type: software
+authors:
+  - family-names: Wang
+    given-names: Joseph (Hao Hsiang)
+    email: josephwang2400@gmail.com
+year: 2026
+repository-code: https://github.com/Joseph410144/BCG_Sim2Real_DeepLearning_Project
+license: MIT AND CC-BY-4.0
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Wang
+      given-names: Joseph (Hao Hsiang)
+      email: josephwang2400@gmail.com
+  title: >-
+    From Waveform Fidelity to Cardiac Representation: Failure Mechanisms in
+    Ballistocardiographic Heart-Rate Estimation
+  year: 2026
+  url: https://github.com/Joseph410144/BCG_Sim2Real_DeepLearning_Project

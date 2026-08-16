@@ -1,0 +1,11 @@
+{
+  "experiment": "nonlearned_representation_recovery",
+  "dataset_interpretation": "single_person_repeated_recordings",
+  "seed": 42,
+  "methods": {
+    "gaussian_noise": ["bandlimit_0p5_12hz", "wiener_5"],
+    "clipping": ["saturation_linear_interpolation"],
+    "contiguous_sample_loss": ["linear_interpolation", "pchip_interpolation"]
+  },
+  "normalization_denominator_epsilon": 0.000001
+}

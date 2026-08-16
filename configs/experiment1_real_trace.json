@@ -1,0 +1,13 @@
+{
+  "experiment": "heart_v6_representative_stage_trace",
+  "dataset_interpretation": "single_person_repeated_recordings",
+  "seed": 42,
+  "cases_per_error_class": 2,
+  "selection_rule": "Seeded selection without replacement, prioritizing distinct legacy dataset IDs and continuous sources within each predeclared error class.",
+  "error_classes_bpm": {
+    "low_error": [0.0, 1.0],
+    "moderate_error": [5.0, 10.0],
+    "gross_error": [10.0, null]
+  },
+  "sampling_rate_hz": 100
+}

@@ -1,0 +1,29 @@
+{
+  "experiment": "representation_focused_robustness",
+  "dataset_interpretation": "single_person_repeated_recordings",
+  "seed": 42,
+  "perturbation_domain": "preprocessed_bcg_input_to_heart_v6",
+  "perturbations": {
+    "gaussian_noise": [
+      {"label": "mild", "snr_db": 20},
+      {"label": "moderate", "snr_db": 10},
+      {"label": "severe", "snr_db": 0}
+    ],
+    "amplitude_attenuation": [
+      {"label": "mild", "gain": 0.75},
+      {"label": "moderate", "gain": 0.5},
+      {"label": "severe", "gain": 0.25}
+    ],
+    "clipping": [
+      {"label": "mild", "threshold_sd": 2.0},
+      {"label": "moderate", "threshold_sd": 1.0},
+      {"label": "severe", "threshold_sd": 0.5}
+    ],
+    "contiguous_sample_loss": [
+      {"label": "mild", "fraction": 0.05},
+      {"label": "moderate", "fraction": 0.15},
+      {"label": "severe", "fraction": 0.30}
+    ]
+  },
+  "refinement_gate_interval_cv": 0.05
+}
