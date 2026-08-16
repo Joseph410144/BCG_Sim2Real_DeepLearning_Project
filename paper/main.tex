@@ -12,14 +12,14 @@
 Failure Mechanisms in Ballistocardiographic Heart-Rate Estimation}
 \author{Joseph (Hao Hsiang) Wang\\
 \small Independent Researcher\\
-\small \texttt{josephwang2400@gmail.com}}
+\small \texttt{josephhwang2400@gmail.com}}
 \date{}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Ballistocardiographic (BCG) heart-rate estimation is difficult because the measured mechanical waveform reflects cardiac activity only after transmission through the body, support surface, sensor coupling, respiration, and noise. This study asks which mechanical-signal representations preserve information useful to an interpretable downstream estimator, how those representations fail, and whether conventional waveform repair restores task fidelity. We evaluated a six-band rectification and harmonic-consistency estimator, HeartV6, on 9,006 synchronized ten-second BCG--ECG windows from repeated recordings of one individual. HeartV6 achieved 2.28 beats per minute (BPM) mean absolute error and 93.64\% within 5 BPM. A controlled amplitude-modulation experiment recovered known modulation in 94.14\% of full-wave-rectified cases versus 7.41\% from the raw spectrum, demonstrating a signal-processing mechanism without asserting a physiological generative model. Among 573 real-window errors above 5 BPM, representation weakness was the largest resolved category (37.35\%), followed by interval refinement (19.90\%) and isolated fusion/scoring failure (9.08\%); 33.68\% remained mixed or unresolved. Controlled noise, clipping, and sample loss jointly reduced target dominance and cross-band or harmonic-family consistency while increasing spectral entropy. Their dominant degradation direction explained 49.61\% of multifeature variation and resembled natural representation failure, most strongly for clipping (cosine similarity 0.924). Conventional filtering and interpolation did not reliably reverse these effects: severe-noise band-limiting improved error by only 0.05 BPM, while clipping and missing-sample interpolation worsened aggregate performance. Waveform reconstruction recovery was only weakly associated with heart-rate improvement ($\rho=0.067$). These results indicate that, for the evaluated pipeline and recordings, waveform similarity and downstream cardiac-information fidelity are distinct objectives, motivating future methods that preserve task-relevant spectral, cross-band, and harmonic structure.
+Ballistocardiographic (BCG) heart-rate estimation is difficult because the measured mechanical waveform reflects cardiac activity only after transmission through the body, support surface, sensor coupling, respiration, and noise. This study asks which mechanical-signal representations preserve information useful to an interpretable downstream estimator, how those representations fail, and whether conventional waveform repair restores task fidelity. We evaluated a deterministic six-band BCG heart-rate estimator (hereafter HeartV6) on 9,006 synchronized ten-second BCG--ECG windows from repeated recordings of one individual. The estimator achieved 2.28 beats per minute (BPM) mean absolute error and 93.64\% within 5 BPM. A controlled amplitude-modulation experiment recovered known modulation in 94.14\% of full-wave-rectified cases versus 7.41\% from the raw spectrum, demonstrating a signal-processing mechanism without asserting a physiological generative model. Among 573 real-window errors above 5 BPM, representation weakness was the largest resolved category (37.35\%), followed by interval refinement (19.90\%) and isolated fusion/scoring failure (9.08\%); 33.68\% remained mixed or unresolved. Controlled noise, clipping, and sample loss jointly reduced target dominance and cross-band or harmonic-family consistency while increasing spectral entropy. Their dominant degradation direction explained 49.61\% of multifeature variation and resembled natural representation failure, most strongly for clipping (cosine similarity 0.924). Conventional filtering and interpolation did not reliably reverse these effects: severe-noise band-limiting improved error by only 0.05 BPM, while clipping and missing-sample interpolation worsened aggregate performance. Waveform reconstruction recovery was only weakly associated with heart-rate improvement ($\rho=0.067$). These results indicate that, for the evaluated pipeline and recordings, waveform similarity and downstream cardiac-information fidelity are distinct objectives, motivating future methods that preserve task-relevant spectral, cross-band, and harmonic structure.
 \end{abstract}
 
 \section{Introduction}
@@ -27,7 +27,7 @@ Ballistocardiography measures mechanical motion induced by cardiovascular activi
 
 Prior heart-rate methods include peak detection, autocorrelation, probabilistic fusion, and learned regression \cite{brueser2020autocorrelation,jung2021loadcells,jiao2021bilstm}. Many signal-restoration approaches, however, are evaluated by waveform error even when the downstream estimator relies on a narrower set of periodic and cross-band features. Whether generic waveform fidelity is aligned with cardiac-rate fidelity remains an important sensing question.
 
-This work studies that alignment through an interpretable estimator and controlled analyses. Its contributions are: (1) a reproducible multi-band BCG estimator and audited ECG reference; (2) a controlled demonstration of how nonlinear envelope operations expose low-frequency periodicity; (3) a full-dataset decomposition of representation, scoring, and interval-refinement failures; (4) paired robustness analysis under noise, saturation, and missing samples; and (5) a comparison showing that conventional waveform repair does not reliably restore estimator-relevant representation. All human data are repeated measurements of one individual; the results characterize these recordings and do not estimate population performance.
+This work studies that alignment through controlled and interpretable analyses of a deterministic multi-band estimator. Its contributions are: (1) a controlled demonstration of how nonlinear envelope operations expose low-frequency periodicity; (2) a full-dataset decomposition of representation, fusion/scoring, and interval-refinement failures; (3) paired analysis of representation degradation under noise, saturation, and missing samples; and (4) an empirical comparison showing that conventional waveform repair does not reliably restore estimator-relevant cardiac information. An audited ECG reference and verified continuous-source grouping support these analyses. All human data are repeated measurements of one individual; the results characterize these recordings and do not estimate population performance.
 
 \section{Background and Estimator}
 \subsection{Dataset and acquisition provenance}
@@ -38,7 +38,7 @@ Acquisition provenance was reconstructed by exact array-content comparison. Ever
 BCG input is filtered from 0.5--25~Hz and standardized per window. The ECG reference uses a Pan--Tompkins-inspired sequence of band-pass filtering, differentiation, squaring, moving integration, refractory peak selection, and local R-peak refinement \cite{pan1985qrs}. The audit retained legacy estimates for traceability and identified systematic reference disagreement in one legacy dataset group.
 
 \subsection{Multi-band cardiac representation}
-For BCG signal $x(t)$, HeartV6 uses six overlapping mechanical bands
+The evaluated system is a deterministic multi-band BCG heart-rate estimator, hereafter HeartV6. For BCG signal $x(t)$, it uses six overlapping mechanical bands
 \begin{equation}
 \mathcal{B}=\{[1,5],[2,6],[3,7],[4,8],[5,9],[6,10]\}\ \mathrm{Hz}.
 \end{equation}
@@ -68,7 +68,7 @@ box/.style={draw,rounded corners,align=center,font=\scriptsize,minimum width=19m
 \draw[arrow] (x)--(bands); \draw[arrow] (bands)--(rect); \draw[arrow] (rect)--(fuse);
 \draw[arrow] (fuse)--(score); \draw[arrow] (score)--(time); \draw[arrow] (time)--(hr);
 \end{tikzpicture}
-\caption{HeartV6 signal path. The study analyzes representation, fusion/scoring, and interval-refinement stages without changing production behavior.}
+\caption{Signal path of the evaluated multi-band estimator. The analysis distinguishes representation, fusion/scoring, and interval-refinement stages without altering the implementation.}
 \label{fig:pipeline}
 \end{figure}
 
@@ -81,7 +81,7 @@ x(t)=[1+m\cos(2\pi f_m t)]\cos(2\pi f_c t)+\epsilon(t).
 Carrier frequencies were 4, 6, and 8~Hz; modulation frequencies were 0.8, 1.2, and 1.6~Hz; depths were 0.1, 0.3, and 0.6; and SNR was noise-free, 20, 10, or 0~dB. Three fixed-seed replicates produced 324 cases per method. Raw spectra, full-wave rectification, Hilbert envelopes, and squared energy were compared. Recovery required peak-frequency error no greater than 0.15~Hz. This is a controlled DSP experiment, not a physiological model of the real recordings.
 
 \subsection{Failure-stage analysis}
-Every real window was instrumented without modifying HeartV6. Recorded quantities included ECG reference, spectral and final HR, interval coefficient of variation (CV), peak count, score margin, target-to-distractor power ratio (T/D), spectral entropy, per-band preferred frequency, and cross-band agreement. Cross-band agreement is the fraction of six preferred frequencies lying within 0.15~Hz of their 0.1-Hz-binned mode.
+Every real window was instrumented without modifying the evaluated estimator. Recorded quantities included ECG reference, spectral and final HR, interval coefficient of variation (CV), peak count, score margin, target-to-distractor power ratio (T/D), spectral entropy, per-band preferred frequency, and cross-band agreement. Cross-band agreement is the fraction of six preferred frequencies lying within 0.15~Hz of their 0.1-Hz-binned mode.
 
 Material failure was defined as final error above 5~BPM. Representation failure required mean T/D below 1 or ECG-target agreement in fewer than half the bands. Refinement failure required spectral error at most 3~BPM followed by more than 2~BPM worsening. Fusion/scoring failure required adequate representation, spectral error above 10~BPM, and a correct alternative from simple peak, term-normalized scoring, or modal per-band evidence. Overlapping or unsupported mechanisms remained mixed/unresolved.
 
@@ -104,7 +104,7 @@ for clean $x_c$, degraded $x_d$, and recovered $x_r$. Representation and HR chan
 
 \section{Results}
 \subsection{Baseline heart-rate estimation}
-Table~\ref{tab:baseline} gives descriptive performance on all 9,006 windows. HeartV6 reduced error relative to direct FFT and autocorrelation. These are within-person repeated-recording results, not estimates for unseen individuals.
+Table~\ref{tab:baseline} gives descriptive performance on all 9,006 windows. The multi-band estimator reduced error relative to direct FFT and autocorrelation. These are within-person repeated-recording results, not estimates for unseen individuals.
 
 \begin{table}[t]
 \centering
@@ -122,7 +122,7 @@ HeartV6 & \textbf{2.28} & \textbf{7.15} & \textbf{88.13} & \textbf{93.64} \\
 \end{tabular}
 \end{table}
 
-The audited and legacy ECG estimates differed by 1.12~BPM on average, and 2.31\% differed by more than 5~BPM. In legacy group 7, reference correction reduced apparent HeartV6 MAE from 12.26 to 2.46~BPM, illustrating the importance of label audit before estimator optimization.
+The audited and legacy ECG estimates differed by 1.12~BPM on average, and 2.31\% differed by more than 5~BPM. In legacy group 7, reference correction reduced the apparent estimator MAE from 12.26 to 2.46~BPM, illustrating the importance of label audit before estimator optimization.
 
 \subsection{Nonlinear exposure of modulation}
 Full-wave rectification and Hilbert envelopes each recovered the known modulation in 94.14\% of 324 cases; squared energy recovered 94.44\%, while the raw spectrum recovered 7.41\%. Mean absolute frequency error was 0.032~Hz for rectification and Hilbert, 0.031~Hz for squared energy, and 1.115~Hz for raw spectra. All nonlinear methods achieved 100\% recovery through 10~dB and at 0~dB when modulation depth was at least 0.3. At 0~dB and depth 0.1, recovery fell to 29.6\% for rectification and Hilbert and 33.3\% for squared energy (Fig.~\ref{fig:am}).
@@ -164,7 +164,7 @@ A descriptive principal-component analysis of paired T/D, entropy, cross-band ag
 Positive attenuation after standardization caused no measurable change at any severity. Linear filtering, rectification, spectral ranking, and peak timing are invariant or equivariant to positive scalar gain in the absence of a fixed noise or quantization floor. Attenuation alone therefore does not simulate weak sensor coupling after z-score normalization.
 
 \subsection{Waveform repair versus task fidelity}
-Conventional recovery did not reliably restore representation. Under 0-dB noise, band-limiting recovered 53.7\% of waveform RMSE but changed HeartV6 MAE only from 4.086 to 4.036~BPM. Severe clipping interpolation worsened MAE from 4.491 to 7.890~BPM and material-failure rate from 14.95\% to 31.90\%. With 30\% contiguous loss, zero fill yielded 3.272~BPM MAE, compared with 3.340 for linear interpolation and 3.349 for PCHIP.
+The evaluated recovery methods did not reliably restore estimator-relevant representation. Under 0-dB noise, band-limiting recovered 53.7\% of waveform RMSE but changed estimator MAE only from 4.086 to 4.036~BPM. Severe clipping interpolation worsened MAE from 4.491 to 7.890~BPM and material-failure rate from 14.95\% to 31.90\%. With 30\% contiguous loss, zero fill yielded 3.272~BPM MAE, compared with 3.340 for linear interpolation and 3.349 for PCHIP.
 
 \begin{figure*}[t]
 \centering
@@ -179,20 +179,20 @@ Across evaluated triplets, waveform RMSE recovery had Spearman association $\rho
 \subsection{What the estimator uses}
 The controlled modulation experiment establishes that rectification and related nonlinear operations can expose low-frequency periodicity encoded in higher-frequency components. Real successful windows likewise contain target-aligned evidence across several mechanical bands, sometimes with higher bands preferring cardiac harmonics. This qualitative consistency supports envelope-based representation as an engineering mechanism, not a claim that real BCG follows the synthetic amplitude-modulation equation.
 
-HeartV6 performance depends on structured evidence distributed across target dominance, spectral concentration, agreement among bands, and harmonic-family organization. No single diagnostic is sufficient: cross-band agreement can be high when all bands agree on the wrong family, and score margin is not monotonic with error. The multifeature degradation axis and unresolved failures both argue against reducing signal quality to one amplitude or confidence statistic.
+Estimator performance depends on structured evidence distributed across target dominance, spectral concentration, agreement among bands, and harmonic-family organization. No single diagnostic is sufficient: cross-band agreement can be high when all bands agree on the wrong family, and score margin is not monotonic with error. The multifeature degradation axis and unresolved failures both argue against reducing signal quality to one amplitude or confidence statistic.
 
 \subsection{Representation failure and scoring}
 Representation weakness was the largest resolved failure category. The scorer nonetheless shapes how weak evidence becomes an estimate. Its implicit low-frequency prior can cause lower-boundary locking, yet removing the prior produces many double-rate selections. This trade-off explains why scorer tuning was not pursued further: the primary deficiency is often the evidence supplied to the scorer, and a local scoring change can exchange one error family for another.
 
 \subsection{Waveform fidelity is not task fidelity}
-The reconstruction study provides the central negative result. A filter can reduce sample-wise waveform error without restoring the low-frequency, cross-band, or harmonic structure used by HeartV6. Conversely, interpolation may create a smooth waveform while erasing extrema or inventing periodic content. This does not imply that waveform reconstruction is universally ineffective; it shows misalignment for the evaluated conventional methods, disturbances, recordings, representation, and downstream estimator.
+The reconstruction study provides the central negative result. A filter can reduce sample-wise waveform error without restoring the low-frequency, cross-band, or harmonic structure used by the evaluated estimator. Conversely, interpolation may create a smooth waveform while erasing extrema or introducing periodic content. This does not imply that waveform reconstruction is universally ineffective; it shows misalignment for the evaluated conventional methods, disturbances, recordings, representation, and downstream estimator.
 
 The appropriate design objective is therefore not merely visual or pointwise resemblance to a clean BCG. A recovery method should preserve cardiac information that remains stable across sensing conditions while controlling arbitrary waveform synthesis. This observation motivates task-aware representation learning, but the present study does not validate such a learned solution.
 
 \section{Limitations}
 All human recordings came from one individual. Repeated windows are dependent measurements, not independent biological samples, and no population-level or unseen-person generalization can be inferred. Exact continuous-source ancestry was verified, but higher recording-session relationships remain unknown. The ECG detector was audited algorithmically rather than against expert beat annotations.
 
-Synthetic noise, clipping, and sample loss isolate sensing disturbances but do not reproduce the full dynamics of motion, posture, body coupling, mattress transfer, hardware saturation, or quantization. Post-normalization attenuation is a scale-invariance control, not a complete weak-coupling model. The modulation experiment demonstrates a DSP mechanism rather than physiological causation. Failure definitions use ECG information for research diagnosis and are not deployable BCG-only quality measures. HeartV6-specific representation findings may not generalize to other estimators. Conventional reconstruction conclusions apply only to the fixed methods tested here. Finally, the latent ECG--BCG framework below is proposed future work, not an implemented contribution.
+Synthetic noise, clipping, and sample loss isolate sensing disturbances but do not reproduce the full dynamics of motion, posture, body coupling, mattress transfer, hardware saturation, or quantization. Post-normalization attenuation is a scale-invariance control, not a complete weak-coupling model. The modulation experiment demonstrates a DSP mechanism rather than physiological causation. Failure definitions use ECG information for research diagnosis and are not deployable BCG-only quality measures. Findings specific to this estimator and representation may not generalize to other approaches. Conventional reconstruction conclusions apply only to the fixed methods tested here. Finally, the latent ECG--BCG framework below is proposed future work, not an implemented contribution.
 
 \section{Future Work}
 \subsection{Shared latent cardiac process}
@@ -208,14 +208,16 @@ where $E$ and $B$ are electrical and mechanical beat templates, $h$ terms are tr
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[>=Latex,node distance=4mm and 4mm,
-box/.style={draw,rounded corners,align=center,font=\scriptsize,minimum width=20mm,minimum height=7mm},arrow/.style={->,thick}]
-\node[box] (z) {latent cardiac\\process $z(t)$};
-\node[box,below left=of z] (el) {electrical\\dynamics};
-\node[box,below right=of z] (mech) {mechanical\\dynamics};
-\node[box,below=of el] (ecg) {measured ECG};
-\node[box,below=of mech] (transfer) {body/support/\\sensor transfer};
-\node[box,below=of transfer] (bcg) {measured BCG};
+\begin{tikzpicture}[>=Latex,scale=0.84,transform shape,node distance=4.5mm and 5mm,
+process/.style={draw,align=center,font=\scriptsize,minimum width=23mm,minimum height=7mm},
+observation/.style={draw,double,align=center,font=\scriptsize,minimum width=23mm,minimum height=7mm},
+arrow/.style={->,semithick}]
+\node[process] (z) {Latent cardiac process $z(t)$};
+\node[process,below left=of z] (el) {Electrical dynamics};
+\node[process,below right=of z] (mech) {Mechanical dynamics};
+\node[observation,below=of el] (ecg) {ECG observation};
+\node[process,below=of mech] (transfer) {Body / support /\\sensor transfer};
+\node[observation,below=of transfer] (bcg) {BCG observation};
 \draw[arrow] (z)--(el); \draw[arrow] (z)--(mech); \draw[arrow] (el)--(ecg); \draw[arrow] (mech)--(transfer); \draw[arrow] (transfer)--(bcg);
 \end{tikzpicture}
 \caption{Proposed future generative view: ECG and BCG are distinct observations of a shared latent cardiac process, with BCG additionally shaped by mechanical transfer and sensing conditions.}
@@ -227,13 +229,13 @@ The existing modulation model is one deliberately simplified mechanism for askin
 \subsection{Cross-modal representation learning}
 Future learning should test whether a BCG encoder preserves cardiac information shared with an ECG-derived teacher, rather than optimizing only sample-wise BCG reconstruction. Candidate ECG supervision includes beat timing, cardiac phase, instantaneous rate, periodic time--frequency structure, or a learned embedding. Representation alignment must be paired with identity and bounded-residual constraints to prevent arbitrary signal synthesis.
 
-The smallest fair next experiment would reuse the existing identity-initialized one-dimensional residual filter with one fixed architecture and verified continuous-source-held-out evaluation. A waveform-only objective would be compared with a prespecified representation-aware objective targeting spectral concentration, cross-band consistency, and harmonic-family stability. Clean identity controls, recovered and induced failures, and source-level heterogeneity should be reported. This is a research hypothesis; improved performance is not assumed.
+A controlled future study should hold model capacity, training data, and evaluation conditions fixed while comparing waveform-reconstruction objectives with task-relevant or cross-modal representation objectives. ECG may provide teacher or reference cardiac information during research, whereas deployment should ultimately operate from BCG alone. Representation alignment should be constrained by clean-input preservation or bounded transformations so that agreement cannot be achieved through arbitrary waveform synthesis. Evaluation should use held-out verified continuous-source groups and report induced failures together with recovered failures and source-level heterogeneity. These principles define a research hypothesis rather than a commitment to a particular architecture or an assumption of improved performance.
 
 \section{Conclusion}
 Across repeated recordings from one individual, accurate BCG heart-rate estimation depended on preserving cardiac structure distributed across rectified spectra, mechanical bands, and harmonic families. Controlled degradation weakened this structure along a partly shared representation-quality axis, and representation weakness was the largest resolved failure mechanism. Conventional filtering and interpolation did not reliably restore the lost information: waveform reconstruction could improve signal similarity with negligible cardiac benefit or could create new estimation failures. For the evaluated pipeline, waveform fidelity and downstream cardiac-information fidelity are therefore distinct objectives. The resulting research direction is to preserve task-relevant cardiac representation explicitly, while validating any future learned method with strict continuous-source grouping and without interpreting synthetic diversity as human generalization.
 
 \section*{Reproducibility Statement}
-The project includes deterministic provenance validation, fixed perturbation configurations, estimator instrumentation, paired window/source summaries, and scripts for aggregate figure generation. Publication figures contain aggregate results only; raw BCG/ECG recordings and per-window personal-data-derived outputs are excluded. Historical results remain available for traceability under the corrected single-person interpretation.
+The project includes deterministic provenance validation, fixed perturbation configurations, estimator instrumentation, paired window/source summaries, and scripts for aggregate figure generation. Publication figures contain aggregate results only; raw BCG/ECG recordings and personal-data-derived per-window outputs are excluded.
 
 \bibliographystyle{plainnat}
 \bibliography{references}

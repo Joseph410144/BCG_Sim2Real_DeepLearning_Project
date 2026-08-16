@@ -7,7 +7,7 @@ type: software
 authors:
   - family-names: Wang
     given-names: Joseph (Hao Hsiang)
-    email: josephwang2400@gmail.com
+    email: josephhwang2400@gmail.com
 year: 2026
 repository-code: https://github.com/Joseph410144/BCG_Sim2Real_DeepLearning_Project
 license: MIT AND CC-BY-4.0
@@ -16,7 +16,7 @@ preferred-citation:
   authors:
     - family-names: Wang
       given-names: Joseph (Hao Hsiang)
-      email: josephwang2400@gmail.com
+      email: josephhwang2400@gmail.com
   title: >-
     From Waveform Fidelity to Cardiac Representation: Failure Mechanisms in
     Ballistocardiographic Heart-Rate Estimation
